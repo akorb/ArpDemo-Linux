@@ -17,19 +17,24 @@ struct if_nameindex getInterface() {
   struct if_nameindex *if_array;
 
   if_array = if_nameindex();
-  if (if_array != NULL) {
-    int i = 0;
-    while (if_array[i].if_index != 0 && if_array[i].if_name != NULL) {
-      printf("%i: %s\n", if_array[i].if_index, if_array[i].if_name);
-      i++;
-    }
+  if (if_array == NULL) {
+    perror("if_nameindex");
+    exit(EXIT_FAILURE);
+  }
+
+  int i = 0;
+  while (if_array[i].if_index != 0 && if_array[i].if_name != NULL) {
+    printf("%i: %s\n", if_array[i].if_index, if_array[i].if_name);
+    i++;
   }
 
   printf("Select index: ");
   int if_index;
   scanf("%i", &if_index);
 
-  struct if_nameindex result = if_array[if_index - 1];
+  struct if_nameindex result;
+  result.if_index = if_array[if_index - 1].if_index;
+  result.if_name = strdup(if_array[if_index - 1].if_name);
 
   if_freenameindex(if_array);
 
@@ -38,7 +43,7 @@ struct if_nameindex getInterface() {
 
 void fillArpPacket(unsigned char buffer[ARP_PACKET_SIZE],
                    unsigned char ipAddr[4], struct ifreq localMac) {
-  const unsigned char *mac = (unsigned char *)localMac.ifr_hwaddr.sa_data;
+  const unsigned char *mac = (unsigned char *)&(((unsigned char *)&localMac.ifr_ifru.ifru_data)[2]);
 
   /***** ETHERNET *****/
   // Destination MAC address
@@ -54,8 +59,8 @@ void fillArpPacket(unsigned char buffer[ARP_PACKET_SIZE],
   buffer[7] = mac[1];
   buffer[8] = mac[2];
   buffer[9] = mac[3];
-  buffer[10] = mac[3];
-  buffer[11] = mac[3];
+  buffer[10] = mac[4];
+  buffer[11] = mac[5];
   // Type
   buffer[12] = 8;
   buffer[13] = 6;
@@ -76,17 +81,17 @@ void fillArpPacket(unsigned char buffer[ARP_PACKET_SIZE],
   buffer[14 + 7] = 1;
 
   // Sender hardware address 08:00:27:53:5d:97
-  buffer[14 + 8] = 0x08;
-  buffer[14 + 9] = 0x00;
-  buffer[14 + 10] = 0x27;
-  buffer[14 + 11] = 0x53;
-  buffer[14 + 12] = 0x5d;
-  buffer[14 + 13] = 0x97;
+  buffer[14 + 8] = mac[0];
+  buffer[14 + 9] = mac[1];
+  buffer[14 + 10] = mac[2];
+  buffer[14 + 11] = mac[3];
+  buffer[14 + 12] = mac[4];
+  buffer[14 + 13] = mac[5];
   // Sender protocol address
   buffer[14 + 14] = 192;
   buffer[14 + 15] = 168;
-  buffer[14 + 16] = 2;
-  buffer[14 + 17] = 101;
+  buffer[14 + 16] = 178;
+  buffer[14 + 17] = 24;
   // Target hardware address
   buffer[14 + 18] = 255;
   buffer[14 + 19] = 255;
@@ -123,8 +128,9 @@ struct ifreq getLocalMac(int sockfd, char *if_name) {
   struct ifreq if_mac;
 
   memset(&if_mac, 0, sizeof(struct ifreq));
-  strncpy(if_mac.ifr_name, "eth0", IFNAMSIZ - 1);
-  if (ioctl(sockfd, SIOCGIFHWADDR, &if_mac) < 0) perror("SIOCGIFHWADDR");
+  strncpy(if_mac.ifr_name, if_name, IFNAMSIZ - 1);
+  if (ioctl(sockfd, SIOCGIFHWADDR, &if_mac) < 0)
+    perror("SIOCGIFHWADDR");
 
   return if_mac;
 }
@@ -139,9 +145,10 @@ void receiveArp(int sockfd, unsigned char ipAddr[4]) {
     }
 
     // Check if the packet comes from the target
-    if (result[14 + 14] == ipAddr[0] && result[14 + 15] == ipAddr[1] &&
-        result[14 + 16] == ipAddr[2] && result[14 + 17] == ipAddr[3]) {
-      // Sender hardware address
+    if (memcmp(&result[14 + 14], ipAddr, 4) == 0 // Accept only target address
+        && result[14 + 7] == 2                   // Accept only replies
+    ) {
+      // Print sender hardware address
       printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", result[14 + 8],
              result[14 + 9], result[14 + 10], result[14 + 11], result[14 + 12],
              result[14 + 13]);
