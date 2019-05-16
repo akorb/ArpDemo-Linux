@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <arpa/inet.h>
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
 #include <net/if.h>
@@ -164,7 +165,7 @@ void receiveArp(int sockfd, unsigned char *srcIp) {
 int main(int argc, char **argv) {
   if (argc != 3) {
     fprintf(stderr,
-            "Usage: %s if_index ip_address\nCheck interface indices "
+            "Usage: %s if_index ipv4_address\nCheck interface indices "
             "with 'ip link'\n",
             argv[0]);
     exit(EXIT_FAILURE);
@@ -179,12 +180,15 @@ int main(int argc, char **argv) {
   // Open RAW socket to send on
   if ((sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP))) == -1) {
     perror("socket");
-    exit(1);
+    exit(EXIT_FAILURE);
   }
 
-  unsigned char dstIp[4];
-  sscanf(address, "%hhu.%hhu.%hhu.%hhu", &dstIp[0], &dstIp[1], &dstIp[2],
-         &dstIp[3]);
+  unsigned char dstIp[INET_ADDRSTRLEN];
+  int res = inet_pton(AF_INET, address, dstIp);
+  if (res == 0 || res == -1) {
+    puts("Invalid IPv4 address");
+    exit(EXIT_FAILURE);
+  }
 
   unsigned char mac[ETH_ALEN];
   getLocalMac(mac, sockfd, if_struct.if_name);
@@ -198,12 +202,11 @@ int main(int argc, char **argv) {
   struct sockaddr_ll socket_address = getSocketAddress(if_struct.if_index);
 
   // Send packet
-  int res =
-      sendto(sockfd, buffer, sizeof(buffer), 0,
-             (struct sockaddr *)&socket_address, sizeof(struct sockaddr_ll));
+  res = sendto(sockfd, buffer, sizeof(buffer), 0,
+               (struct sockaddr *)&socket_address, sizeof(struct sockaddr_ll));
   if (res == -1) {
     perror("sendto");
-    exit(1);
+    exit(EXIT_FAILURE);
   }
 
   receiveArp(sockfd, dstIp);
