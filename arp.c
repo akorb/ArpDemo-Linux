@@ -15,28 +15,13 @@
 #define ARP_SIZE 28
 #define ARP_FRAME_SIZE (ETHERNET_SIZE + ARP_SIZE)
 
-struct if_nameindex chooseInterface() {
+struct if_nameindex getInterface(int if_index) {
   struct if_nameindex *if_array;
-
   if_array = if_nameindex();
-  if (if_array == NULL) {
-    perror("if_nameindex");
-    exit(EXIT_FAILURE);
-  }
-
-  int i = 0;
-  while (if_array[i].if_index != 0 && if_array[i].if_name != NULL) {
-    printf("%i: %s\n", if_array[i].if_index, if_array[i].if_name);
-    i++;
-  }
-
-  printf("Select index: ");
-  int if_index;
-  scanf("%i", &if_index);
 
   struct if_nameindex result;
-  result.if_index = if_array[if_index - 1].if_index;
-  result.if_name = strdup(if_array[if_index - 1].if_name);
+  result.if_index = if_array[if_index].if_index;
+  result.if_name = strdup(if_array[if_index].if_name);
 
   if_freenameindex(if_array);
 
@@ -167,7 +152,7 @@ void receiveArp(int sockfd, unsigned char *srcIp) {
         && result[ETHERNET_SIZE + 7] == 2 // Accept only replies
     ) {
       // Print sender hardware address
-      printf("MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", result[ETHERNET_SIZE + 8],
+      printf("%02X:%02X:%02X:%02X:%02X:%02X\n", result[ETHERNET_SIZE + 8],
              result[ETHERNET_SIZE + 9], result[ETHERNET_SIZE + 10],
              result[ETHERNET_SIZE + 11], result[ETHERNET_SIZE + 12],
              result[ETHERNET_SIZE + 13]);
@@ -176,8 +161,19 @@ void receiveArp(int sockfd, unsigned char *srcIp) {
   }
 }
 
-int main() {
-  struct if_nameindex if_struct = chooseInterface();
+int main(int argc, char **argv) {
+  if (argc != 3) {
+    fprintf(stderr,
+            "Usage: %s if_index ip_address\nCheck interface indices "
+            "with 'ip link'\n",
+            argv[0]);
+    exit(EXIT_FAILURE);
+  }
+
+  int if_index = atoi(argv[1]);
+  char *address = argv[2];
+
+  struct if_nameindex if_struct = getInterface(if_index - 1);
 
   int sockfd;
   // Open RAW socket to send on
@@ -186,10 +182,9 @@ int main() {
     exit(1);
   }
 
-  printf("Target IP Address: ");
-
   unsigned char dstIp[4];
-  scanf("%hhu.%hhu.%hhu.%hhu", &dstIp[0], &dstIp[1], &dstIp[2], &dstIp[3]);
+  sscanf(address, "%hhu.%hhu.%hhu.%hhu", &dstIp[0], &dstIp[1], &dstIp[2],
+         &dstIp[3]);
 
   unsigned char mac[ETH_ALEN];
   getLocalMac(mac, sockfd, if_struct.if_name);
